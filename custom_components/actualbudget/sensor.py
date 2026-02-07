@@ -6,7 +6,6 @@ from decimal import Decimal
 import logging
 
 from typing import List, Dict, Union
-from urllib.parse import urlparse
 import datetime
 
 from homeassistant.components.sensor import (
@@ -30,6 +29,7 @@ from .const import (
     CONFIG_UNIT,
     CONFIG_CERT,
     CONFIG_ENCRYPT_PASSWORD,
+    CONFIG_SKIP_VALIDATE_CERT,
 )
 from .actualbudget import ActualBudget, BudgetAmount
 
@@ -52,17 +52,17 @@ async def async_setup_entry(
     password = config[CONFIG_PASSWORD]
     file = config[CONFIG_FILE]
     cert = config.get(CONFIG_CERT)
+    skip_validate_cert = config[CONFIG_SKIP_VALIDATE_CERT]
     unit = config.get(CONFIG_UNIT, "€")
     prefix = config.get(CONFIG_PREFIX)
 
-    if cert == "SKIP":
+    if not skip_validate_cert:
         cert = False
     encrypt_password = config.get(CONFIG_ENCRYPT_PASSWORD)
     api = ActualBudget(hass, endpoint, password, file, cert, encrypt_password)
-
-    domain = urlparse(endpoint).hostname
-    port = urlparse(endpoint).port
-    unique_source_id = f"{domain}_{port}_{file}"
+    config_entry.api = api
+    
+    unique_source_id = await api.get_unique_id()
 
     accounts = await api.get_accounts()
     lastUpdate = datetime.datetime.now()
@@ -289,7 +289,6 @@ class actualbudgetBudgetSensor(SensorEntity):
     def icon(self):
         return self._icon
 
-
     @property
     def state(self) -> float | None:
         total = 0
@@ -301,7 +300,8 @@ class actualbudgetBudgetSensor(SensorEntity):
     @property
     def extra_state_attributes(self) -> Dict[str, Union[str, float]]:
         extra_state_attributes = {}
-        amounts = [amount for amount in self._amounts if datetime.datetime.strptime(amount.month, '%Y%m') <= datetime.datetime.now()]
+        amounts = [amount for amount in self._amounts if datetime.datetime.strptime(
+            amount.month, '%Y%m') <= datetime.datetime.now()]
         current_month = amounts[-1].month
         if current_month:
             extra_state_attributes["current_month"] = current_month
